@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Python Chatbot</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <div class="page">
+    <header>
+      <h1>🤖 Python Chatbot in VS Code</h1>
+      <button id="resetBtn" title="Clear conversation">Reset</button>
+    </header>
+
+    <main>
+      <div id="chat" class="chat-window" aria-live="polite"></div>
+
+      <form id="chatForm" autocomplete="off">
+        <input
+          id="messageInput"
+          type="text"
+          placeholder="Type a message and press Enter…"
+          required
+        />
+        <button type="submit" id="sendBtn">Send</button>
+      </form>
+
+      <div id="typing" class="typing hidden">Bot is typing…</div>
+    </main>
+
+    <footer>
+      <small>Flask · TinyLlama Chat · Math guardrail</small>
+    </footer>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

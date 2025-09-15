@@ -1,0 +1,5 @@
+flask>=3.0
+transformers>=4.43
+torch
+accelerate
+safetensors
