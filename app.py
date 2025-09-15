@@ -246,5 +246,6 @@ def health():
 
 if __name__ == "__main__":
     PORT = int(os.environ.get("PORT", "5050"))
-    print(f"Open your browser to:  http://127.0.0.1:{PORT}")
-    app.run(host="127.0.0.1", port=PORT, debug=True, use_reloader=False)
+    app.run(host="0.0.0.0", port=PORT, debug=False, use_reloader=False)
+
+
