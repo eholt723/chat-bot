@@ -1,17 +1,16 @@
+# app.py
 from flask import Flask, render_template, request, jsonify, session
 import os, threading, re, ast, operator
-import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
+import requests
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret-key")
 
 # -------------------------------
-# Model (lazy-loaded for fast startup)
+# Hosted LLM (Hugging Face Inference API)
 # -------------------------------
-MODEL_NAME = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
-tokenizer = None
-model = None
+HF_MODEL = os.environ.get("HF_MODEL", "mistralai/Mistral-7B-Instruct-v0.2")
+HF_TOKEN = os.environ.get("HF_API_TOKEN")  # set this in Render → Environment
 model_lock = threading.Lock()
 model_ready = False
 
@@ -22,22 +21,16 @@ SYSTEM_PROMPT = (
 )
 
 def ensure_model_loaded():
-    """Load the tokenizer + model once, on demand."""
-    global tokenizer, model, model_ready
+    """Using a hosted API—nothing to load locally; just mark ready."""
+    global model_ready
     if model_ready:
         return
     with model_lock:
         if model_ready:
             return
-        tok = AutoTokenizer.from_pretrained(MODEL_NAME)
-        mdl = AutoModelForCausalLM.from_pretrained(
-            MODEL_NAME,
-            dtype=torch.float32,   # CPU-friendly
-            device_map="auto"      # CPU unless you have a GPU
-        )
-        mdl.eval()
-        tokenizer = tok
-        model = mdl
+        # Minimal sanity check: require token to be present
+        if not HF_TOKEN:
+            print("WARNING: HF_API_TOKEN is not set. Set it in your environment.")
         model_ready = True
 
 # -------------------------------
@@ -121,9 +114,7 @@ def longest_math_substring(text: str) -> str:
     From a normalized string (only math-ish chars), pick the longest substring
     that contains at least one operator and parses our allowed pattern.
     """
-    # Split on non-math chars just in case (shouldn't exist after normalize)
     candidates = re.findall(r"[0-9+\-*/^(). ]+", text)
-    # Clean and score by length
     cleaned = []
     for c in candidates:
         c2 = c.replace(" ", "")
@@ -133,15 +124,11 @@ def longest_math_substring(text: str) -> str:
             cleaned.append(c2)
     if not cleaned:
         return ""
-    # Pick the longest; if tie, last occurrence (usually the main expression)
     cleaned.sort(key=len)
     return cleaned[-1]
 
 def extract_math_expression(user_text: str) -> str:
-    """
-    Full pipeline: sentence -> normalized -> longest arithmetic substring.
-    Returns "" if nothing reasonable is found.
-    """
+    """Full pipeline: sentence -> normalized -> longest arithmetic substring."""
     normalized = normalize_sentence_to_math(user_text)
     expr = longest_math_substring(normalized)
     return expr
@@ -158,39 +145,55 @@ def to_chat_messages(history, user_text):
     return msgs
 
 def build_inputs(history, user_text):
-    msgs = to_chat_messages(history, user_text)
-    if hasattr(tokenizer, "apply_chat_template"):
-        text = tokenizer.apply_chat_template(
-            msgs, tokenize=False, add_generation_prompt=True
-        )
-    else:
-        text = SYSTEM_PROMPT + "\n\n"
-        for m in msgs:
-            if m["role"] == "system":
-                continue
-            prefix = "User:" if m["role"] == "user" else "Assistant:"
-            text += f"{prefix} {m['content']}\n"
-        text += "Assistant:"
-    return tokenizer(text, return_tensors="pt")
+    """
+    Build a simple prompt for instruction-tuned models.
+    (Keeps your history and system prompt.)
+    """
+    lines = [SYSTEM_PROMPT, ""]
+    for m in history:
+        role = "Assistant" if m["role"] == "bot" else "User"
+        lines.append(f"{role}: {m['text']}")
+    lines.append(f"User: {user_text}")
+    lines.append("Assistant:")
+    return "\n".join(lines)
 
-def generate_reply(inputs):
-    with torch.no_grad():
-        output = model.generate(
-            **inputs,
-            max_new_tokens=220,
-            temperature=0.3,     # lower randomness
-            top_p=0.9,
-            repetition_penalty=1.1,
-            do_sample=True,
-            eos_token_id=tokenizer.eos_token_id,
-        )
-    prompt_len = inputs["input_ids"].shape[-1]
-    reply_ids = output[0][prompt_len:]
-    reply_text = tokenizer.decode(reply_ids, skip_special_tokens=True).strip()
-    for marker in ["<|user|>", "<|assistant|>", "User:", "Assistant:"]:
-        if marker in reply_text:
-            reply_text = reply_text.split(marker)[0].strip()
-    return reply_text
+def generate_reply(prompt_text):
+    """
+    Call Hugging Face Inference API. Keep params modest for speed/cost.
+    """
+    if not HF_TOKEN:
+        return "Server error: HF_API_TOKEN is not set."
+    url = f"https://api-inference.huggingface.co/models/{HF_MODEL}"
+    headers = {
+        "Authorization": f"Bearer {HF_TOKEN}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "inputs": prompt_text,
+        "parameters": {
+            "max_new_tokens": 200,
+            "temperature": 0.7,
+            "top_p": 0.9,
+            "return_full_text": False
+        }
+    }
+    try:
+        r = requests.post(url, headers=headers, json=payload, timeout=60)
+        r.raise_for_status()
+        data = r.json()
+        # Common HF response shape: list with {"generated_text": "..."}
+        if isinstance(data, list) and data and "generated_text" in data[0]:
+            text = data[0]["generated_text"].strip()
+            # Trim at turn markers if present
+            for marker in ["\nUser:", "\nAssistant:"]:
+                if marker in text:
+                    text = text.split(marker)[0].strip()
+            return text or "..."
+        # Other shapes: return a stringified version
+        return str(data)
+    except Exception as e:
+        print("HF API error:", e)
+        return "Sorry, I had trouble contacting the model API."
 
 # -------------------------------
 # Routes
@@ -211,7 +214,6 @@ def chat():
     if expr:
         try:
             result = safe_eval_expr(expr)
-            # Debug print so you can confirm what's being evaluated
             print(f"[math] extracted='{expr}' -> {result}")
             msgs = session.get("messages", [])
             msgs.append({"role": "user", "text": user_text})
@@ -221,15 +223,15 @@ def chat():
         except Exception as e:
             print(f"[math] failed to eval '{expr}': {e}  (falling back to model)")
 
-    # --- Otherwise, fall back to model ---
+    # --- Otherwise, call hosted model ---
     msgs = session.get("messages", [])
     msgs.append({"role": "user", "text": user_text})
     if len(msgs) > 10:
         msgs = msgs[-10:]
 
     ensure_model_loaded()
-    inputs = build_inputs(msgs, user_text)
-    reply_text = generate_reply(inputs)
+    prompt_text = build_inputs(msgs, user_text)
+    reply_text = generate_reply(prompt_text)
 
     msgs.append({"role": "bot", "text": reply_text})
     session["messages"] = msgs
@@ -246,6 +248,5 @@ def health():
 
 if __name__ == "__main__":
     PORT = int(os.environ.get("PORT", "5050"))
+    print(f"Open your browser to:  http://127.0.0.1:{PORT}")
     app.run(host="0.0.0.0", port=PORT, debug=False, use_reloader=False)
-
-
