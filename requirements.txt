@@ -3,3 +3,4 @@ transformers>=4.43
 torch
 accelerate
 safetensors
+gunicorn
