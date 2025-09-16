@@ -11,6 +11,29 @@ HF_MODEL = os.environ.get("HF_MODEL", "mistralai/Mistral-7B-Instruct-v0.2")
 HF_TOKEN = os.environ.get("HF_API_TOKEN")
 HF_URL   = f"https://api-inference.huggingface.co/models/{HF_MODEL}"
 
+# --- diagnostics (safe to expose; does NOT print your token) ---
+@app.get("/diag")
+def diag():
+    return jsonify({
+        "model_env": os.environ.get("HF_MODEL"),
+        "model_in_app": HF_MODEL,
+        "has_token": bool(HF_TOKEN),
+        "url": f"https://api-inference.huggingface.co/models/{HF_MODEL}"
+    })
+
+@app.get("/hf-test")
+def hf_test():
+    if not HF_TOKEN:
+        return jsonify({"ok": False, "msg": "HF_API_TOKEN missing"}), 500
+    headers = {"Authorization": f"Bearer {HF_TOKEN}", "Content-Type":"application/json"}
+    url = f"https://api-inference.huggingface.co/models/{HF_MODEL}"
+    r = requests.post(url, headers=headers, json={"inputs":"ping"}, timeout=30)
+    try:
+        body = r.json()
+    except Exception:
+        body = r.text[:500]
+    return jsonify({"status_code": r.status_code, "body": body})
+
 
 model_lock = threading.Lock()
 model_ready = False
@@ -279,4 +302,5 @@ if __name__ == "__main__":
     PORT = int(os.environ.get("PORT", "5050"))
     print(f"Open your browser to:  http://127.0.0.1:{PORT}")
     app.run(host="0.0.0.0", port=PORT, debug=False, use_reloader=False)
+
 
