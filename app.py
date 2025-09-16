@@ -21,6 +21,33 @@ def diag():
         "url": f"https://api-inference.huggingface.co/models/{HF_MODEL}"
     })
 
+# --- extra diagnostics (temporary; safe: does NOT expose your token) ---
+@app.get("/hf-whoami")
+def hf_whoami():
+    if not HF_TOKEN:
+        return jsonify({"ok": False, "msg": "HF_API_TOKEN missing"}), 500
+    r = requests.get(
+        "https://huggingface.co/api/whoami-v2",
+        headers={"Authorization": f"Bearer {HF_TOKEN}"},
+        timeout=20,
+    )
+    try:
+        body = r.json()
+    except Exception:
+        body = r.text
+    return jsonify({"status_code": r.status_code, "body": body})
+
+@app.get("/hf-modelmeta")
+def hf_modelmeta():
+    model = os.environ.get("HF_MODEL", "gpt2")
+    r = requests.get(f"https://huggingface.co/api/models/{model}", timeout=20)
+    try:
+        body = r.json()
+    except Exception:
+        body = r.text
+    return jsonify({"status_code": r.status_code, "length": len(str(body))})
+
+
 @app.get("/hf-test")
 def hf_test():
     if not HF_TOKEN:
@@ -302,5 +329,6 @@ if __name__ == "__main__":
     PORT = int(os.environ.get("PORT", "5050"))
     print(f"Open your browser to:  http://127.0.0.1:{PORT}")
     app.run(host="0.0.0.0", port=PORT, debug=False, use_reloader=False)
+
 
 
