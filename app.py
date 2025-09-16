@@ -6,12 +6,11 @@ import requests
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret-key")
 
-# -------------------------------
 # Hosted LLM (Hugging Face Inference API)
-# -------------------------------
 HF_MODEL = os.environ.get("HF_MODEL", "mistralai/Mistral-7B-Instruct-v0.2")
-HF_TOKEN = os.environ.get("HF_API_TOKEN")  # set this in Render → Environment
+HF_TOKEN = os.environ.get("HF_API_TOKEN")
 HF_URL   = f"https://api-inference.huggingface.co/models/{HF_MODEL}"
+
 
 model_lock = threading.Lock()
 model_ready = False
@@ -280,3 +279,4 @@ if __name__ == "__main__":
     PORT = int(os.environ.get("PORT", "5050"))
     print(f"Open your browser to:  http://127.0.0.1:{PORT}")
     app.run(host="0.0.0.0", port=PORT, debug=False, use_reloader=False)
+
