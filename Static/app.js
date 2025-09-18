@@ -1,66 +1,82 @@
-const chat = document.getElementById("chat");
-const form = document.getElementById("chatForm");
-const input = document.getElementById("messageInput");
-const sendBtn = document.getElementById("sendBtn");
-const typing = document.getElementById("typing");
-const resetBtn = document.getElementById("resetBtn");
+const chatEl = document.getElementById("chat");
+const formEl = document.getElementById("composer");
+const inputEl = document.getElementById("message");
 
-function addMessage(role, text) {
-  const div = document.createElement("div");
-  div.className = `msg ${role}`;
-  div.textContent = text;
-  chat.appendChild(div);
-  // Auto-scroll so new messages push prior ones upward
-  chat.scrollTop = chat.scrollHeight;
+const tplBot = document.getElementById("msg-template");
+const tplMe = document.getElementById("msg-me-template");
+const tplTyping = document.getElementById("typing-template");
+
+function scrollToBottom() {
+  chatEl.scrollTo({ top: chatEl.scrollHeight, behavior: "smooth" });
 }
 
-async function postJSON(url, payload) {
-  const res = await fetch(url, {
+function addMessage(text, me=false) {
+  const node = (me ? tplMe : tplBot).content.cloneNode(true);
+  const bubble = node.querySelector(".bubble");
+  bubble.textContent = text;
+  chatEl.appendChild(node);
+  scrollToBottom();
+}
+
+function addTyping() {
+  const node = tplTyping.content.cloneNode(true);
+  const el = node.querySelector(".msg");
+  chatEl.appendChild(node);
+  scrollToBottom();
+  return el; // return the typing node root for removal later
+}
+
+async function sendToServer(message) {
+  const res = await fetch("/chat", {
     method: "POST",
     headers: {"Content-Type": "application/json"},
-    body: JSON.stringify(payload),
+    body: JSON.stringify({ message })
   });
-  if (!res.ok) {
-    let msg = "Request failed";
-    try { const data = await res.json(); msg = data.error || msg; } catch {}
-    throw new Error(msg);
-  }
-  return res.json();
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return await res.json();
 }
 
-form.addEventListener("submit", async (e) => {
+/** typewriter animation (prevents empty bubble flashes) */
+function typeInto(bubbleEl, text, speed = 16) {
+  return new Promise(resolve => {
+    let i = 0;
+    const tick = () => {
+      // append a few chars per frame for snappier feel
+      bubbleEl.textContent += text.slice(i, i+3);
+      i += 3;
+      scrollToBottom();
+      if (i < text.length) {
+        setTimeout(tick, speed);
+      } else {
+        resolve();
+      }
+    };
+    tick();
+  });
+}
+
+formEl.addEventListener("submit", async (e) => {
   e.preventDefault();
-  const text = input.value.trim();
-  if (!text) return;
+  const msg = (inputEl.value || "").trim();
+  if (!msg) return;
 
-  addMessage("user", text);
-  input.value = "";
-  input.focus();
+  // show my message
+  addMessage(msg, true);
+  inputEl.value = "";
 
-  typing.classList.remove("hidden");
-  sendBtn.disabled = true;
+  // show typing bubble
+  const typingNode = addTyping();
+  const typingBubble = typingNode.querySelector(".bubble");
 
   try {
-    const data = await postJSON("/chat", { message: text });
-    typing.classList.add("hidden");
-    sendBtn.disabled = false;
+    const { reply } = await sendToServer(msg);
 
-    if (!data.ok) {
-      addMessage("bot", `Error: ${data.error || "Unknown error"}`);
-      return;
-    }
-    addMessage("bot", data.reply);
+    // replace typing bubble with an empty bot bubble then type into it
+    typingBubble.classList.remove("typing");
+    typingBubble.innerHTML = ""; // clear dots
+    await typeInto(typingBubble, reply ?? "");
   } catch (err) {
-    typing.classList.add("hidden");
-    sendBtn.disabled = false;
-    addMessage("bot", `Network error: ${err.message}`);
-  }
-});
-
-resetBtn.addEventListener("click", async () => {
-  try {
-    await fetch("/reset", { method: "POST" });
-  } finally {
-    chat.innerHTML = "";
+    typingBubble.classList.remove("typing");
+    typingBubble.textContent = `Error: ${err.message}`;
   }
 });

@@ -1,122 +1,51 @@
-<form id="chat-form">
-  <input id="chat-input" placeholder="Say hi…" autocomplete="off"/>
-  <label style="display:flex;align-items:center;gap:6px;color:#9aa3b2;font-size:12px">
-    <input type="checkbox" id="turbo" /> ⚡ Turbo (shorter, faster)
-  </label>
-  <button type="submit">Send</button>
-</form>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Eric’s ChatBot</title>
+  <link rel="stylesheet" href="/static/style.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="app">
+    <header class="app-header">
+      <div class="app-title">🤖 Eric’s ChatBot</div>
+      <div class="app-subtitle">friendly · fast enough · nice on the eyes</div>
+    </header>
 
-<script>
-document.addEventListener('DOMContentLoaded', () => {
-  const chat  = document.getElementById('chat');
-  const form  = document.getElementById('chat-form');
-  const input = document.getElementById('chat-input');
-  const turbo = document.getElementById('turbo');
+    <main id="chat" class="chat"></main>
 
-  function add(role, text){
-    const div = document.createElement('div');
-    div.className = 'msg ' + (role === 'user' ? 'me' : 'bot');
-    div.textContent = text || "";
-    chat.appendChild(div);
-    chat.scrollTop = chat.scrollHeight;
-    return div;
-  }
-  function typingBubble(){
-    const row = document.createElement('div');
-    row.className = 'typing';
-    row.innerHTML = '<div class="dot"></div><div class="dot"></div><div class="dot"></div>';
-    chat.appendChild(row);
-    chat.scrollTop = chat.scrollHeight;
-    return row;
-  }
+    <form id="composer" class="composer">
+      <input id="message" type="text" placeholder="type a message…" autocomplete="off" />
+      <button id="sendBtn" type="submit" title="Send">➤</button>
+    </form>
+  </div>
 
-  form.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const text = input.value.trim();
-    if(!text) return;
-    input.value = '';
-    add('user', text);
-    const botDiv = add('bot', '');
-    const bubble = typingBubble();
-    form.querySelector('button').disabled = true;
+  <template id="msg-template">
+    <div class="msg">
+      <div class="avatar"></div>
+      <div class="bubble"></div>
+    </div>
+  </template>
 
-    // streaming request with AbortController timeout
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 7000); // client-side timeout cap
+  <template id="msg-me-template">
+    <div class="msg me">
+      <div class="avatar">E</div>
+      <div class="bubble"></div>
+    </div>
+  </template>
 
-    try{
-      const res = await fetch('/chat_stream', {
-        method: 'POST',
-        headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({message: text, turbo: turbo.checked}),
-        signal: controller.signal
-      });
+  <template id="typing-template">
+    <div class="msg">
+      <div class="avatar"></div>
+      <div class="bubble typing">
+        <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+      </div>
+    </div>
+  </template>
 
-      clearTimeout(timer);
-
-      if(!res.ok || !res.body){
-        const txt = await res.text().catch(()=> '');
-        bubble.remove();
-        botDiv.textContent = `Server error ${res.status}. ${txt.slice(0,200)}`;
-        return;
-      }
-
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let gotAny = false;
-
-      while(true){
-        const {done, value} = await reader.read();
-        if(done) break;
-        buffer += decoder.decode(value, {stream:true});
-        const parts = buffer.split("\n\n");
-        buffer = parts.pop();
-
-        for(const part of parts){
-          if(!part.startsWith("data: ")) continue;
-          const jsonStr = part.slice(6).trim();
-          if(jsonStr === "[DONE]") continue;
-
-          let payload;
-          try { payload = JSON.parse(jsonStr); } catch { continue; }
-
-          if(payload.token){
-            gotAny = true;
-            botDiv.textContent += payload.token;
-            chat.scrollTop = chat.scrollHeight;
-          }
-          if(payload.error){
-            botDiv.textContent = "Error: " + payload.error;
-          }
-        }
-      }
-
-      bubble.remove();
-      if(!gotAny && !botDiv.textContent){
-        // last-resort: non-streaming call
-        const r2 = await fetch('/chat', {
-          method:'POST',
-          headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({message: text, turbo: turbo.checked})
-        });
-        const ct = r2.headers.get('content-type') || '';
-        if (ct.includes('application/json')){
-          const d2 = await r2.json().catch(()=>null);
-          botDiv.textContent = d2 && d2.reply ? d2.reply : '(no reply)';
-        } else {
-          const t2 = await r2.text().catch(()=> '');
-          botDiv.textContent = t2.slice(0,200) || '(no reply)';
-        }
-      }
-    }catch(err){
-      clearTimeout(timer);
-      bubble.remove();
-      botDiv.textContent = 'Network error: ' + err.message;
-    }finally{
-      form.querySelector('button').disabled = false;
-      input.focus();
-    }
-  });
-});
-</script>
+  <script src="/static/app.js" defer></script>
+</body>
+</html>

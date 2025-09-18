@@ -1,149 +1,49 @@
-# app.py — robust SSE streaming + fallback
-import os, sys, json, traceback
-from flask import Flask, render_template, request, jsonify, session, Response, stream_with_context
-from dotenv import load_dotenv
-import cohere
+from flask import Flask, render_template, request, jsonify
+import os
 
-load_dotenv()
-COHERE_API_KEY = os.getenv("COHERE_API_KEY")
-co = cohere.ClientV2(api_key=COHERE_API_KEY)
-
-app = Flask(__name__, template_folder="Templates")
-app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret-key")
+# If you want Cohere again, uncomment these:
+# from dotenv import load_dotenv
+# import cohere
+# load_dotenv()
+# COHERE_API_KEY = os.getenv("COHERE_API_KEY")
+# co = cohere.ClientV2(api_key=COHERE_API_KEY)
+# MODEL = os.getenv("COHERE_MODEL", "command-r")
 
 SYSTEM_PROMPT = "Be concise, friendly, and helpful. If unsure, say so briefly."
-HISTORY_MAX    = 6
-FAST_TRIGGER   = {"hi","hello","hey","yo","sup","howdy"}
 
-# speed config
-MAX_TOKENS_NORMAL = 180
-MAX_TOKENS_TURBO  = 80
-STREAM_TIMEOUT_S  = 5  # fallback if streaming is slow
+app = Flask(__name__, template_folder="Templates", static_folder="static")
 
+# Keep this if your existing /chat route already works.
+# Otherwise this is a simple example that echoes for now,
+# and shows exactly where to drop the Cohere call.
+@app.route("/chat", methods=["POST"])
+def chat():
+    data = request.get_json(silent=True) or {}
+    user_msg = (data.get("message") or "").strip()
+    if not user_msg:
+        return jsonify({"reply": "Say that again?"})
 
-@app.get("/")
+    # ==== COHERE (uncomment to use) ====
+    # try:
+    #     resp = co.chat(
+    #         model=MODEL,
+    #         messages=[{"role":"system","content":SYSTEM_PROMPT},
+    #                   {"role":"user","content":user_msg}],
+    #         temperature=0.5,
+    #     )
+    #     reply_text = resp.text
+    # except Exception as e:
+    #     reply_text = f"Oops—model error: {e}"
+
+    # Temporary simple echo fallback (delete when Cohere is re-enabled)
+    reply_text = f"You said: {user_msg}\n(Your model hook is ready—just uncomment it.)"
+    return jsonify({"reply": reply_text})
+
+@app.route("/")
 def index():
-    session.setdefault("messages", [])
     return render_template("index.html")
 
-def build_messages(user_text, history, turbo=False):
-    hist = history[-(HISTORY_MAX if not turbo else 2):]  # turbo: tiny history
-    if user_text.lower() in FAST_TRIGGER:
-        return [
-            {"role":"system","content":SYSTEM_PROMPT},
-            {"role":"user","content":user_text},
-        ]
-    msgs = [{"role":"system","content":SYSTEM_PROMPT}]
-    for m in hist:
-        role = "assistant" if m["role"] == "bot" else "user"
-        msgs.append({"role": role, "content": m["text"]})
-    msgs.append({"role":"user","content":user_text})
-    return msgs
-
-
-@app.post("/chat")
-def chat():
-    try:
-        payload   = request.get_json(silent=True) or {}
-        user_text = (payload.get("message") or "").strip()
-        turbo     = bool(payload.get("turbo"))
-        if not user_text:
-            return jsonify({"ok": False, "error": "Empty message"}), 400
-        if not COHERE_API_KEY:
-            return jsonify({"ok": False, "error": "Missing COHERE_API_KEY"}), 500
-
-        history  = session.get("messages", [])
-        messages = build_messages(user_text, history, turbo=turbo)
-        max_tokens = MAX_TOKENS_TURBO if turbo else MAX_TOKENS_NORMAL
-
-        res = co.chat(model="command-a-03-2025", messages=messages, max_tokens=max_tokens)
-        reply = res.message.content[0].text if res and res.message and res.message.content else "(no reply)"
-
-        history.append({"role":"user","text":user_text})
-        history.append({"role":"bot","text":reply})
-        session["messages"] = history[-HISTORY_MAX:]
-        return jsonify({"ok": True, "reply": reply})
-    except Exception as e:
-        print("ERROR /chat:", e, file=sys.stderr)
-        print(traceback.format_exc(), file=sys.stderr)
-        return jsonify({"ok": False, "error": f"{e.__class__.__name__}"}), 500
-
-
-@app.post("/chat_stream")
-def chat_stream():
-    payload   = request.get_json(silent=True) or {}
-    user_text = (payload.get("message") or "").strip()
-    turbo     = bool(payload.get("turbo"))
-    if not user_text:
-        return jsonify({"ok": False, "error": "Empty message"}), 400
-    if not COHERE_API_KEY:
-        return jsonify({"ok": False, "error": "Missing COHERE_API_KEY"}), 500
-
-    history  = session.get("messages", [])
-    messages = build_messages(user_text, history, turbo=turbo)
-    max_tokens = MAX_TOKENS_TURBO if turbo else MAX_TOKENS_NORMAL
-
-    def generate():
-        full = []
-        got_any = False
-        try:
-            yield "data: {\"token\":\"\"}\n\n"  # start typing bubble
-
-            # manual timeout tracking
-            import time
-            start = time.time()
-
-            for event in co.chat_stream(model="command-a-03-2025", messages=messages, max_tokens=max_tokens):
-                text = getattr(event, "text", None)
-                if text:
-                    got_any = True
-                    full.append(text)
-                    yield f"data: {json.dumps({'token': text})}\n\n"
-                # safety: if we haven’t received anything for too long, break to fallback
-                if not got_any and (time.time() - start) > STREAM_TIMEOUT_S:
-                    break
-
-            # Fallback if empty
-            if not full:
-                try:
-                    res = co.chat(model="command-a-03-2025", messages=messages, max_tokens=max_tokens)
-                    fb = res.message.content[0].text if res and res.message and res.message.content else ""
-                    if fb:
-                        yield f"data: {json.dumps({'token': fb})}\n\n"
-                    else:
-                        yield f"data: {json.dumps({'error':'No streamed tokens and empty fallback'})}\n\n"
-                except Exception as e:
-                    yield f"data: {json.dumps({'error': str(e)})}\n\n"
-
-            yield "data: [DONE]\n\n"
-
-            # Save history
-            reply = "".join(full) if full else (fb if 'fb' in locals() else "")
-            if reply:
-                hist = session.get("messages", [])
-                hist.append({"role":"user","text":user_text})
-                hist.append({"role":"bot","text":reply})
-                session["messages"] = hist[-HISTORY_MAX:]
-        except Exception as e:
-            print("ERROR /chat_stream:", e, file=sys.stderr)
-            print(traceback.format_exc(), file=sys.stderr)
-            yield f"data: {json.dumps({'error': str(e)})}\n\n"
-
-    headers = {
-        "Cache-Control": "no-cache",
-        "X-Accel-Buffering": "no",
-        "Connection": "keep-alive",
-    }
-    return Response(stream_with_context(generate()),
-                    mimetype="text/event-stream",
-                    headers=headers)
-
-
-@app.post("/reset")
-def reset():
-    session.pop("messages", None)
-    return jsonify({"ok": True})
-
-@app.get("/health")
-def health():
-    return jsonify({"status": "ok", "backend": "cohere", "session_len": len(session.get("messages", []))})
+if __name__ == "__main__":
+    # FLASK_RUN_PORT or default to 5000
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port, debug=True)
