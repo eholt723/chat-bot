@@ -1,7 +1,6 @@
 from flask import Flask, render_template, request, jsonify, session
 import os, threading, re, ast, operator
-import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
+
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret-key")
@@ -248,3 +247,4 @@ if __name__ == "__main__":
     PORT = int(os.environ.get("PORT", "5050"))
     print(f"Open your browser to:  http://127.0.0.1:{PORT}")
     app.run(host="127.0.0.1", port=PORT, debug=True, use_reloader=False)
+
