@@ -29,7 +29,36 @@ def chat():
         return jsonify({"ok": False, "error": "Empty message"}), 400
     if not COHERE_API_KEY:
         return jsonify({"ok": False, "error": "Missing COHERE_API_KEY"}), 500
+def chat_stream():
+    payload = request.get_json(silent=True) or {}
+    user_text = (payload.get("message") or "").strip()
+    if not user_text:
+        return jsonify({"ok": False, "error": "Empty message"}), 400
+    if not COHERE_API_KEY:
+        return jsonify({"ok": False, "error": "Missing COHERE_API_KEY"}), 500
 
+    # Build message list (same as /chat)
+    history = session.get("messages", [])
+    if len(history) > HISTORY_MAX:
+        history = history[-HISTORY_MAX:]
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    for m in history:
+        role = "assistant" if m["role"] == "bot" else "user"
+        messages.append({"role": role, "content": m["text"]})
+    messages.append({"role": "user", "content": user_text})
+
+    def generate():
+        try:
+            # Cohere's Python SDK supports streaming with .chat_stream
+            for event in co.chat_stream(model="command-a-03-2025", messages=messages):
+                if event.event_type == "text-generation":
+                    chunk = event.text
+                    yield f"data: {json.dumps({'token': chunk})}\n\n"
+            yield "data: [DONE]\n\n"
+        except Exception as e:
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+
+    return Response(stream_with_context(generate()), mimetype="text/event-stream")
     # Build minimal message list (fast path for greetings)
     history = session.get("messages", [])
     if len(history) > HISTORY_MAX:
@@ -74,3 +103,4 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", "5050"))
     print(f"Open your browser to: http://127.0.0.1:{port}")
     app.run(host="127.0.0.1", port=port, debug=True, use_reloader=False)
+
