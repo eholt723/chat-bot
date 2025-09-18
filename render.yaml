@@ -1,14 +1,16 @@
 services:
-- type: web
-name: eric-chatbot
-env: python
-plan: free
-buildCommand: pip install -r requirements.txt
-startCommand: gunicorn app:app --workers=2 --threads=4 --timeout=120
-autoDeploy: true
-healthCheckPath: /
-envVars:
-- key: PYTHON_VERSION
-value: 3.11.9
-# - key: COHERE_API_KEY
-# sync: false
+  - type: web
+    name: eric-dark-bubble-chat
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --workers=1 --threads=4 --timeout=180
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: MODEL_NAME
+        value: TinyLlama/TinyLlama-1.1B-Chat-v1.0
+      - key: FLASK_SECRET_KEY
+        sync: false
