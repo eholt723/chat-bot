@@ -20,7 +20,7 @@
     .dot:nth-child(2){animation-delay:.15s}.dot:nth-child(3){animation-delay:.3s}
     @keyframes b {0%,80%,100%{transform:translateY(0)} 40%{transform:translateY(-4px)}}
     form{display:flex;gap:8px;margin-top:12px}
-    input{flex:1;padding:12px;border-radius:10px;border:1px solid var(--border);background:#0f1320;color:var(--text)}
+    input{flex:1;padding:12px;border-radius:10px;border:1px solid var(--border);background:#0f1320;color:#e8eefc}
     button{padding:12px 16px;border-radius:10px;border:1px solid var(--border);background:var(--accent);color:#fff;cursor:pointer}
     button:disabled{opacity:.6;cursor:not-allowed}
   </style>
@@ -88,34 +88,52 @@
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
         let buffer = "";
+        let gotAny = false;
 
         while(true){
           const {done, value} = await reader.read();
           if(done) break;
           buffer += decoder.decode(value, {stream:true});
 
-          // SSE messages are separated by a blank line
           const parts = buffer.split("\n\n");
           buffer = parts.pop();
 
           for(const part of parts){
-            if(part.startsWith("data: ")){
-              const jsonStr = part.slice(6).trim();
-              if(jsonStr === "[DONE]"){ continue; }
-              let payload;
-              try { payload = JSON.parse(jsonStr); } catch { continue; }
-              if(payload.token){
-                // append streamed token
-                botDiv.textContent += payload.token;
-                chat.scrollTop = chat.scrollHeight;
-              }
-              if(payload.error){
-                botDiv.textContent = "Error: " + payload.error;
-              }
+            if(!part.startsWith("data: ")) continue;
+            const jsonStr = part.slice(6).trim();
+            if(jsonStr === "[DONE]") continue;
+
+            let payload;
+            try { payload = JSON.parse(jsonStr); } catch { continue; }
+
+            if(payload.token){
+              gotAny = true;
+              botDiv.textContent += payload.token;
+              chat.scrollTop = chat.scrollHeight;
+            }
+            if(payload.error){
+              botDiv.textContent = "Error: " + payload.error;
             }
           }
         }
+
         bubble.remove();
+        if(!gotAny && !botDiv.textContent){
+          // safety net: ask the non-streaming endpoint to produce something
+          const r2 = await fetch('/chat', {
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({message: text})
+          });
+          const ct = r2.headers.get('content-type') || '';
+          if (ct.includes('application/json')){
+            const d2 = await r2.json().catch(()=>null);
+            botDiv.textContent = d2 && d2.reply ? d2.reply : '(no reply)';
+          } else {
+            const t2 = await r2.text().catch(()=> '');
+            botDiv.textContent = t2.slice(0,200) || '(no reply)';
+          }
+        }
       }catch(err){
         bubble.remove();
         botDiv.textContent = 'Network error: ' + err.message;
