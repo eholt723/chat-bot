@@ -1,18 +1,19 @@
+# app.py
 from flask import Flask, render_template, request, jsonify, session
-import os, threading, re, ast, operator
+import os, re, ast, operator
+from dotenv import load_dotenv
+import cohere
 
+# -------------------------------
+# Setup
+# -------------------------------
+load_dotenv()
+COHERE_API_KEY = os.getenv("COHERE_API_KEY")
+co = cohere.ClientV2(api_key=COHERE_API_KEY)
 
-app = Flask(__name__)
+# NOTE: your templates folder is capitalized ("Templates"), so point Flask at it explicitly.
+app = Flask(__name__, template_folder="Templates")
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret-key")
-
-# -------------------------------
-# Model (lazy-loaded for fast startup)
-# -------------------------------
-MODEL_NAME = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
-tokenizer = None
-model = None
-model_lock = threading.Lock()
-model_ready = False
 
 SYSTEM_PROMPT = (
     "You are a helpful, concise assistant for a beginner-friendly Python web app. "
@@ -20,30 +21,8 @@ SYSTEM_PROMPT = (
     "If you are unsure, say so briefly."
 )
 
-def ensure_model_loaded():
-    """Load the tokenizer + model once, on demand."""
-    global tokenizer, model, model_ready
-    if model_ready:
-        return
-    with model_lock:
-        if model_ready:
-            return
-        tok = AutoTokenizer.from_pretrained(MODEL_NAME)
-        mdl = AutoModelForCausalLM.from_pretrained(
-            MODEL_NAME,
-            dtype=torch.float32,   # CPU-friendly
-            device_map="auto"      # CPU unless you have a GPU
-        )
-        mdl.eval()
-        tokenizer = tok
-        model = mdl
-        model_ready = True
-
 # -------------------------------
-# Math guardrail (robust)
-# - Finds the longest arithmetic substring inside any sentence
-# - Normalizes word operators and unicode symbols
-# - Safely evaluates + - * / ^ and parentheses
+# Math guardrail
 # -------------------------------
 _ALLOWED_OPS = {
     ast.Add: operator.add,
@@ -97,32 +76,17 @@ def safe_eval_expr(expr: str):
     return int(val) if isinstance(val, float) and val.is_integer() else val
 
 def normalize_sentence_to_math(text: str) -> str:
-    """Convert any sentence to a condensed arithmetic expression candidate."""
     s = text.lower()
-
-    # If there's an equals sign, keep only the left side (ignore asserted result)
     if "=" in s:
         s = s.split("=", 1)[0]
-
-    # Replace common word operators and unicode symbols
     for word, op in _WORD_TO_OP:
         s = s.replace(word, op)
-
-    # Remove quotes/letters/commas etc., keep mathy chars + spaces
     s = "".join(ch for ch in s if ch in _MATH_CHARS)
-
-    # Collapse spaces
     s = re.sub(r"\s+", " ", s).strip()
     return s
 
 def longest_math_substring(text: str) -> str:
-    """
-    From a normalized string (only math-ish chars), pick the longest substring
-    that contains at least one operator and parses our allowed pattern.
-    """
-    # Split on non-math chars just in case (shouldn't exist after normalize)
     candidates = re.findall(r"[0-9+\-*/^(). ]+", text)
-    # Clean and score by length
     cleaned = []
     for c in candidates:
         c2 = c.replace(" ", "")
@@ -132,64 +96,13 @@ def longest_math_substring(text: str) -> str:
             cleaned.append(c2)
     if not cleaned:
         return ""
-    # Pick the longest; if tie, last occurrence (usually the main expression)
     cleaned.sort(key=len)
     return cleaned[-1]
 
 def extract_math_expression(user_text: str) -> str:
-    """
-    Full pipeline: sentence -> normalized -> longest arithmetic substring.
-    Returns "" if nothing reasonable is found.
-    """
     normalized = normalize_sentence_to_math(user_text)
     expr = longest_math_substring(normalized)
     return expr
-
-# -------------------------------
-# Chat helpers
-# -------------------------------
-def to_chat_messages(history, user_text):
-    msgs = [{"role": "system", "content": SYSTEM_PROMPT}]
-    for m in history:
-        role = "assistant" if m["role"] == "bot" else "user"
-        msgs.append({"role": role, "content": m["text"]})
-    msgs.append({"role": "user", "content": user_text})
-    return msgs
-
-def build_inputs(history, user_text):
-    msgs = to_chat_messages(history, user_text)
-    if hasattr(tokenizer, "apply_chat_template"):
-        text = tokenizer.apply_chat_template(
-            msgs, tokenize=False, add_generation_prompt=True
-        )
-    else:
-        text = SYSTEM_PROMPT + "\n\n"
-        for m in msgs:
-            if m["role"] == "system":
-                continue
-            prefix = "User:" if m["role"] == "user" else "Assistant:"
-            text += f"{prefix} {m['content']}\n"
-        text += "Assistant:"
-    return tokenizer(text, return_tensors="pt")
-
-def generate_reply(inputs):
-    with torch.no_grad():
-        output = model.generate(
-            **inputs,
-            max_new_tokens=220,
-            temperature=0.3,     # lower randomness
-            top_p=0.9,
-            repetition_penalty=1.1,
-            do_sample=True,
-            eos_token_id=tokenizer.eos_token_id,
-        )
-    prompt_len = inputs["input_ids"].shape[-1]
-    reply_ids = output[0][prompt_len:]
-    reply_text = tokenizer.decode(reply_ids, skip_special_tokens=True).strip()
-    for marker in ["<|user|>", "<|assistant|>", "User:", "Assistant:"]:
-        if marker in reply_text:
-            reply_text = reply_text.split(marker)[0].strip()
-    return reply_text
 
 # -------------------------------
 # Routes
@@ -201,38 +114,47 @@ def index():
 
 @app.post("/chat")
 def chat():
-    user_text = (request.json or {}).get("message", "").strip()
+    payload = request.get_json(silent=True) or {}
+    user_text = (payload.get("message") or "").strip()
     if not user_text:
         return jsonify({"ok": False, "error": "Empty message"}), 400
 
-    # --- Math guardrail FIRST ---
+    # 1) Math guardrail first
     expr = extract_math_expression(user_text)
     if expr:
         try:
             result = safe_eval_expr(expr)
-            # Debug print so you can confirm what's being evaluated
-            print(f"[math] extracted='{expr}' -> {result}")
             msgs = session.get("messages", [])
             msgs.append({"role": "user", "text": user_text})
-            msgs.append({"role": "bot", "text": str(result)})
+            msgs.append({"role": "bot",  "text": str(result)})
             session["messages"] = msgs[-10:]
             return jsonify({"ok": True, "reply": str(result)})
         except Exception as e:
-            print(f"[math] failed to eval '{expr}': {e}  (falling back to model)")
+            # fall through to model
+            print(f"[math] failed to eval '{expr}': {e}")
 
-    # --- Otherwise, fall back to model ---
-    msgs = session.get("messages", [])
-    msgs.append({"role": "user", "text": user_text})
-    if len(msgs) > 10:
-        msgs = msgs[-10:]
+    # 2) Cohere API fallback (no local torch/models)
+    if not COHERE_API_KEY:
+        return jsonify({"ok": False, "error": "Missing COHERE_API_KEY"}), 500
 
-    ensure_model_loaded()
-    inputs = build_inputs(msgs, user_text)
-    reply_text = generate_reply(inputs)
+    history = session.get("messages", [])
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    for m in history:
+        role = "assistant" if m["role"] == "bot" else "user"
+        messages.append({"role": role, "content": m["text"]})
+    messages.append({"role": "user", "content": user_text})
 
-    msgs.append({"role": "bot", "text": reply_text})
-    session["messages"] = msgs
-    return jsonify({"ok": True, "reply": reply_text})
+    try:
+        res = co.chat(model="command-a-03-2025", messages=messages)
+        reply = res.message.content[0].text if res and res.message and res.message.content else "(no reply)"
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+    history.append({"role": "user", "text": user_text})
+    history.append({"role": "bot",  "text": reply})
+    session["messages"] = history[-10:]
+
+    return jsonify({"ok": True, "reply": reply})
 
 @app.post("/reset")
 def reset():
@@ -241,10 +163,10 @@ def reset():
 
 @app.get("/health")
 def health():
-    return jsonify({"status": "ok", "model_ready": model_ready})
+    return jsonify({"status": "ok", "backend": "cohere", "session_len": len(session.get("messages", []))})
 
+# Local dev runner (Render uses Gunicorn with app:app)
 if __name__ == "__main__":
-    PORT = int(os.environ.get("PORT", "5050"))
-    print(f"Open your browser to:  http://127.0.0.1:{PORT}")
-    app.run(host="127.0.0.1", port=PORT, debug=True, use_reloader=False)
-
+    port = int(os.environ.get("PORT", "5050"))
+    print(f"Open your browser to: http://127.0.0.1:{port}")
+    app.run(host="127.0.0.1", port=port, debug=True, use_reloader=False)
