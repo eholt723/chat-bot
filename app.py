@@ -15,44 +15,52 @@ SYSTEM_PROMPT = "Be concise, friendly, and helpful. If unsure, say so briefly."
 HISTORY_MAX    = 6
 FAST_TRIGGER   = {"hi","hello","hey","yo","sup","howdy"}
 
+# speed config
+MAX_TOKENS_NORMAL = 180
+MAX_TOKENS_TURBO  = 80
+STREAM_TIMEOUT_S  = 5  # fallback if streaming is slow
+
+
 @app.get("/")
 def index():
     session.setdefault("messages", [])
     return render_template("index.html")
 
-def _build_messages(user_text, history):
-    if len(history) > HISTORY_MAX:
-        history = history[-HISTORY_MAX:]
+def build_messages(user_text, history, turbo=False):
+    hist = history[-(HISTORY_MAX if not turbo else 2):]  # turbo: tiny history
     if user_text.lower() in FAST_TRIGGER:
         return [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user",   "content": user_text},
+            {"role":"system","content":SYSTEM_PROMPT},
+            {"role":"user","content":user_text},
         ]
-    msgs = [{"role": "system", "content": SYSTEM_PROMPT}]
-    for m in history:
+    msgs = [{"role":"system","content":SYSTEM_PROMPT}]
+    for m in hist:
         role = "assistant" if m["role"] == "bot" else "user"
         msgs.append({"role": role, "content": m["text"]})
-    msgs.append({"role": "user", "content": user_text})
+    msgs.append({"role":"user","content":user_text})
     return msgs
+
 
 @app.post("/chat")
 def chat():
     try:
         payload   = request.get_json(silent=True) or {}
         user_text = (payload.get("message") or "").strip()
+        turbo     = bool(payload.get("turbo"))
         if not user_text:
             return jsonify({"ok": False, "error": "Empty message"}), 400
         if not COHERE_API_KEY:
             return jsonify({"ok": False, "error": "Missing COHERE_API_KEY"}), 500
 
         history  = session.get("messages", [])
-        messages = _build_messages(user_text, history)
+        messages = build_messages(user_text, history, turbo=turbo)
+        max_tokens = MAX_TOKENS_TURBO if turbo else MAX_TOKENS_NORMAL
 
-        res = co.chat(model="command-a-03-2025", messages=messages)
+        res = co.chat(model="command-a-03-2025", messages=messages, max_tokens=max_tokens)
         reply = res.message.content[0].text if res and res.message and res.message.content else "(no reply)"
 
-        history.append({"role": "user", "text": user_text})
-        history.append({"role": "bot",  "text": reply})
+        history.append({"role":"user","text":user_text})
+        history.append({"role":"bot","text":reply})
         session["messages"] = history[-HISTORY_MAX:]
         return jsonify({"ok": True, "reply": reply})
     except Exception as e:
@@ -60,53 +68,62 @@ def chat():
         print(traceback.format_exc(), file=sys.stderr)
         return jsonify({"ok": False, "error": f"{e.__class__.__name__}"}), 500
 
+
 @app.post("/chat_stream")
 def chat_stream():
     payload   = request.get_json(silent=True) or {}
     user_text = (payload.get("message") or "").strip()
+    turbo     = bool(payload.get("turbo"))
     if not user_text:
         return jsonify({"ok": False, "error": "Empty message"}), 400
     if not COHERE_API_KEY:
         return jsonify({"ok": False, "error": "Missing COHERE_API_KEY"}), 500
 
     history  = session.get("messages", [])
-    messages = _build_messages(user_text, history)
+    messages = build_messages(user_text, history, turbo=turbo)
+    max_tokens = MAX_TOKENS_TURBO if turbo else MAX_TOKENS_NORMAL
 
     def generate():
         full = []
+        got_any = False
         try:
-            # send an initial ping so the client shows typing immediately
-            yield "data: {\"token\":\"\"}\n\n"
+            yield "data: {\"token\":\"\"}\n\n"  # start typing bubble
 
-            for event in co.chat_stream(model="command-a-03-2025", messages=messages):
-                # Be permissive: emit any chunk that includes text
+            # manual timeout tracking
+            import time
+            start = time.time()
+
+            for event in co.chat_stream(model="command-a-03-2025", messages=messages, max_tokens=max_tokens):
                 text = getattr(event, "text", None)
                 if text:
+                    got_any = True
                     full.append(text)
                     yield f"data: {json.dumps({'token': text})}\n\n"
+                # safety: if we haven’t received anything for too long, break to fallback
+                if not got_any and (time.time() - start) > STREAM_TIMEOUT_S:
+                    break
 
-            # If no tokens arrived, fall back to non-streaming call
+            # Fallback if empty
             if not full:
                 try:
-                    res = co.chat(model="command-a-03-2025", messages=messages)
-                    fallback = res.message.content[0].text if res and res.message and res.message.content else ""
+                    res = co.chat(model="command-a-03-2025", messages=messages, max_tokens=max_tokens)
+                    fb = res.message.content[0].text if res and res.message and res.message.content else ""
+                    if fb:
+                        yield f"data: {json.dumps({'token': fb})}\n\n"
+                    else:
+                        yield f"data: {json.dumps({'error':'No streamed tokens and empty fallback'})}\n\n"
                 except Exception as e:
-                    fallback = ""
-                if fallback:
-                    yield f"data: {json.dumps({'token': fallback})}\n\n"
-                else:
-                    yield f"data: {json.dumps({'error':'No streamed tokens and fallback empty'})}\n\n"
+                    yield f"data: {json.dumps({'error': str(e)})}\n\n"
 
             yield "data: [DONE]\n\n"
 
-            # Save history (assemble full reply)
-            reply = "".join(full) if full else (fallback if 'fallback' in locals() else "")
+            # Save history
+            reply = "".join(full) if full else (fb if 'fb' in locals() else "")
             if reply:
                 hist = session.get("messages", [])
-                hist.append({"role": "user", "text": user_text})
-                hist.append({"role": "bot",  "text": reply})
+                hist.append({"role":"user","text":user_text})
+                hist.append({"role":"bot","text":reply})
                 session["messages"] = hist[-HISTORY_MAX:]
-
         except Exception as e:
             print("ERROR /chat_stream:", e, file=sys.stderr)
             print(traceback.format_exc(), file=sys.stderr)
@@ -114,12 +131,13 @@ def chat_stream():
 
     headers = {
         "Cache-Control": "no-cache",
-        "X-Accel-Buffering": "no",   # reduce proxy buffering
+        "X-Accel-Buffering": "no",
         "Connection": "keep-alive",
     }
     return Response(stream_with_context(generate()),
                     mimetype="text/event-stream",
                     headers=headers)
+
 
 @app.post("/reset")
 def reset():
