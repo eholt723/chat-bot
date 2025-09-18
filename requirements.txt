@@ -1,5 +1,5 @@
 Flask>=3.0
 gunicorn>=22.0
-transformers>=4.44
-tokenizers>=0.19
-torch==2.3.1
+transformers>=4.56
+tokenizers>=0.20
+torch==2.7.1
