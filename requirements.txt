@@ -1,4 +1,4 @@
-Flask>=3.0
-gunicorn>=22.0
-python-dotenv>=1.0
-cohere>=5.9
+flask
+gunicorn
+cohere
+python-dotenv

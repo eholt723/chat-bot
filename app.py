@@ -1,20 +1,20 @@
+# app.py — minimal, faster, Cohere-only
 from flask import Flask, render_template, request, jsonify, session
 import os
+from dotenv import load_dotenv
 import cohere
 
-app = Flask(__name__, template_folder="Templates", static_folder="static")
-app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret-key")
-
-# Cohere setup
-COHERE_API_KEY = os.environ.get("COHERE_API_KEY")
-MODEL_NAME = os.environ.get("COHERE_MODEL", "command-r")
+load_dotenv()
+COHERE_API_KEY = os.getenv("COHERE_API_KEY")
 co = cohere.ClientV2(api_key=COHERE_API_KEY)
 
-SYSTEM_PROMPT = (
-    "You are a concise, friendly assistant for a beginner-friendly Python web app. "
-    "Answer clearly and avoid making things up. "
-    "If unsure, say so briefly."
-)
+# NOTE: your folder is capitalized in your repo, so point Flask to it explicitly.
+app = Flask(__name__, template_folder="Templates")
+app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret-key")
+
+SYSTEM_PROMPT = "Be concise, friendly, and helpful. If unsure, say so briefly."
+HISTORY_MAX = 6  # keep context small for speed
+FAST_TRIGGER = {"hi", "hello", "hey", "yo", "sup", "howdy"}
 
 @app.get("/")
 def index():
@@ -23,31 +23,42 @@ def index():
 
 @app.post("/chat")
 def chat():
-    user_text = (request.json or {}).get("message", "").strip()
+    payload = request.get_json(silent=True) or {}
+    user_text = (payload.get("message") or "").strip()
     if not user_text:
         return jsonify({"ok": False, "error": "Empty message"}), 400
+    if not COHERE_API_KEY:
+        return jsonify({"ok": False, "error": "Missing COHERE_API_KEY"}), 500
 
-    # Build history
-    msgs = session.get("messages", [])
-    msgs.append({"role": "user", "text": user_text})
-    if len(msgs) > 6:
-        msgs = msgs[-6:]
+    # Build minimal message list (fast path for greetings)
+    history = session.get("messages", [])
+    if len(history) > HISTORY_MAX:
+        history = history[-HISTORY_MAX:]
+
+    if user_text.lower() in FAST_TRIGGER:
+        messages = [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": user_text},
+        ]
+    else:
+        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+        for m in history:
+            role = "assistant" if m["role"] == "bot" else "user"
+            messages.append({"role": role, "content": m["text"]})
+        messages.append({"role": "user", "content": user_text})
 
     try:
-        resp = co.chat(
-            model=MODEL_NAME,
-            messages=[{"role": "system", "content": SYSTEM_PROMPT}] +
-                     [{"role": "user" if m["role"]=="user" else "assistant", "content": m["text"]}
-                      for m in msgs],
-            temperature=0.5,
-        )
-        reply_text = resp.text
+        res = co.chat(model="command-a-03-2025", messages=messages)
+        reply = res.message.content[0].text if res and res.message and res.message.content else "(no reply)"
     except Exception as e:
-        reply_text = f"(Cohere error: {e})"
+        return jsonify({"ok": False, "error": str(e)}), 500
 
-    msgs.append({"role": "bot", "text": reply_text})
-    session["messages"] = msgs
-    return jsonify({"ok": True, "reply": reply_text})
+    # Save short history
+    history.append({"role": "user", "text": user_text})
+    history.append({"role": "bot",  "text": reply})
+    session["messages"] = history[-HISTORY_MAX:]
+
+    return jsonify({"ok": True, "reply": reply})
 
 @app.post("/reset")
 def reset():
@@ -56,8 +67,10 @@ def reset():
 
 @app.get("/health")
 def health():
-    return jsonify({"status": "ok"})
-    
+    return jsonify({"status": "ok", "backend": "cohere", "session_len": len(session.get("messages", []))})
+
+# Local dev (Render runs gunicorn app:app)
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port, debug=True)
+    port = int(os.environ.get("PORT", "5050"))
+    print(f"Open your browser to: http://127.0.0.1:{port}")
+    app.run(host="127.0.0.1", port=port, debug=True, use_reloader=False)
