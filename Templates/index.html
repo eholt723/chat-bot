@@ -9,7 +9,8 @@
     *{box-sizing:border-box}
     body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif}
     .wrap{max-width:800px;margin:24px auto;padding:16px}
-    h1{font-size:20px;margin:0 0 12px}
+    h1{font-size:22px;margin:0 0 8px;text-align:center}
+    .stack{color:var(--muted);font-size:13px;text-align:center;margin-bottom:16px}
     .chat{background:var(--card);border:1px solid var(--border);border-radius:16px;height:62vh;overflow:auto;padding:16px}
     .msg{max-width:80%;padding:10px 12px;border-radius:12px;margin:8px 0;line-height:1.4;white-space:pre-wrap}
     .me{margin-left:auto;background:var(--accent);color:#fff}
@@ -22,14 +23,15 @@
     input{flex:1;padding:12px;border-radius:10px;border:1px solid var(--border);background:#0f1320;color:var(--text)}
     button{padding:12px 16px;border-radius:10px;border:1px solid var(--border);background:var(--accent);color:#fff;cursor:pointer}
     button:disabled{opacity:.6;cursor:not-allowed}
-    .bar{display:flex;gap:10px;align-items:center;color:var(--muted);font-size:12px;margin-bottom:8px}
-    code{background:#0f1320;padding:2px 6px;border-radius:6px;border:1px solid var(--border)}
   </style>
 </head>
 <body>
   <div class="wrap">
-    <div class="bar">Model: <code>Cohere</code> · History trimmed for speed</div>
+    <h1>Live Chatbot Demo</h1>
+    <div class="stack">Built with Python · Flask · VS Code · Cohere API · Render</div>
+    
     <div id="chat" class="chat"></div>
+    
     <form id="f">
       <input id="t" placeholder="Say hi…" autocomplete="off"/>
       <button>Send</button>
