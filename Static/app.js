@@ -3,6 +3,7 @@ const formEl = document.getElementById("composer");
 const inputEl = document.getElementById("message");
 const themeToggle = document.getElementById("themeToggle");
 const clearBtn = document.getElementById("clearBtn");
+const resetBtn = document.getElementById('resetBtn');
 
 
 const tplBot = document.getElementById("msg-template");
@@ -88,6 +89,16 @@ if(!msg) return;
 addMessage(msg, true);
 inputEl.value=''; inputEl.focus();
 
+resetBtn?.addEventListener('click', async () => {
+  try {
+    await fetch('/reset', { method: 'POST' });
+  } catch(e) {
+    // ignore network errors; we still clear the UI
+  }
+  chatEl.innerHTML = '';
+  addMessage('Session reset. How can I help?');
+  inputEl.focus();
+});
 
 const typingNode = addTyping();
 addMessage('Hey Eric! I\'m ready. Ask me anything.');
