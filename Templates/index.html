@@ -1,88 +1,86 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Eric’s Chat — Luxe</title>
-<link rel="stylesheet" href="/static/style.css" />
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Python Chatbot in VS Code</title>
+  <link rel="stylesheet" href="/static/style.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
-<div class="bg-orbs"></div>
-<div class="bg-grid"></div>
+  <div class="bg-orbs"></div>
+  <div class="bg-grid"></div>
 
+  <div class="app">
+    <header class="app-header stack-header">
+      <div class="stack-left">
+        <h1 class="title">Python Chatbot in VS Code</h1>
+        <div class="badges">
+          <span class="badge">Python 3.x</span>
+          <span class="badge">Flask</span>
+          <span class="badge">VS Code</span>
+          <span class="badge">Render</span>
+          <!-- pick ONE of the two below depending on your backend -->
+          <span class="badge">Cohere Command-R</span>
+          <!-- <span class="badge">TinyLlama 1.1B + Math Guardrail</span> -->
+        </div>
+      </div>
+      <div class="stack-right">
+        <button id="resetBtn" class="chip">Reset</button>
+      </div>
+    </header>
 
-<div class="app">
-<header class="app-header">
-<div class="left">
-<div class="logo">🤖</div>
-<div class="titles">
-<div class="app-title">Eric’s Chat</div>
-<div class="app-subtitle">clean • elegant • responsive</div>
-</div>
-</div>
-<div class="right">
-<button id="themeToggle" class="chip" title="Toggle theme">🌓</button>
-<a class="chip link" href="/" title="Home">Home</a>
-</div>
-</header>
+    <main id="chat" class="chat" aria-live="polite"></main>
 
+    <form id="composer" class="composer" autocomplete="off">
+      <div class="input-wrap">
+        <input id="message" type="text" placeholder="Type a message…" aria-label="Message" />
+        <div class="actions">
+          <button type="button" id="clearBtn" class="ghost" title="Clear chat">✦</button>
+          <button id="sendBtn" type="submit" class="send" title="Send" aria-label="Send">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <path d="M3 11L21 3L13 21L11 13L3 11Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+    </form>
+  </div>
 
-<main id="chat" class="chat" aria-live="polite"></main>
+  <!-- message templates (no robot at top; avatars only in bubbles) -->
+  <template id="msg-template">
+    <div class="msg">
+      <div class="avatar bot">🤖</div>
+      <div class="bubble">
+        <div class="content"></div>
+        <div class="meta">
+          <button class="copy" title="Copy">Copy</button>
+          <span class="time"></span>
+        </div>
+      </div>
+    </div>
+  </template>
 
+  <template id="msg-me-template">
+    <div class="msg me">
+      <div class="avatar me">E</div>
+      <div class="bubble">
+        <div class="content"></div>
+        <div class="meta"><span class="time"></span></div>
+      </div>
+    </div>
+  </template>
 
-<form id="composer" class="composer" autocomplete="off">
-<div class="input-wrap">
-<input id="message" type="text" placeholder="Type a message…" aria-label="Message" />
-<div class="actions">
-<button type="button" id="clearBtn" class="ghost" title="Clear chat">✦</button>
-<button id="sendBtn" type="submit" class="send" title="Send" aria-label="Send">
-<svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-<path d="M3 11L21 3L13 21L11 13L3 11Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
-</svg>
-</button>
-</div>
-</div>
-</form>
-</div>
+  <template id="typing-template">
+    <div class="msg">
+      <div class="avatar bot">🤖</div>
+      <div class="bubble typing">
+        <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+      </div>
+    </div>
+  </template>
 
-
-<template id="msg-template">
-<div class="msg">
-<div class="avatar bot" title="Bot">🤖</div>
-<div class="bubble">
-<div class="content"></div>
-<div class="meta">
-<button class="copy" title="Copy">Copy</button>
-<span class="time"></span>
-</div>
-</div>
-</div>
-</template>
-
-
-<template id="msg-me-template">
-<div class="msg me">
-<div class="avatar me" title="You">E</div>
-<div class="bubble">
-<div class="content"></div>
-<div class="meta"><span class="time"></span></div>
-</div>
-</div>
-</template>
-
-
-<template id="typing-template">
-<div class="msg">
-<div class="avatar bot">🤖</div>
-<div class="bubble typing">
-<span class="dot"></span><span class="dot"></span><span class="dot"></span>
-</div>
-</div>
-</template>
-
-
-<script src="/static/app.js" defer></script>
+  <script src="/static/app.js" defer></script>
 </body>
 </html>
