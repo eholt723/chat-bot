@@ -1,4 +1,4 @@
-# app.py — minimal, faster, Cohere-only
+
 from flask import Flask, render_template, request, jsonify, session
 import os
 from dotenv import load_dotenv
@@ -8,12 +8,12 @@ load_dotenv()
 COHERE_API_KEY = os.getenv("COHERE_API_KEY")
 co = cohere.ClientV2(api_key=COHERE_API_KEY)
 
-# NOTE: your folder is capitalized in your repo, so point Flask to it explicitly.
+
 app = Flask(__name__, template_folder="Templates")
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret-key")
 
 SYSTEM_PROMPT = "Be concise, friendly, and helpful. If unsure, say so briefly."
-HISTORY_MAX = 6  # keep context small for speed
+HISTORY_MAX = 6  
 FAST_TRIGGER = {"hi", "hello", "hey", "yo", "sup", "howdy"}
 
 @app.get("/")
@@ -30,7 +30,7 @@ def chat():
     if not COHERE_API_KEY:
         return jsonify({"ok": False, "error": "Missing COHERE_API_KEY"}), 500
 
-    # Build minimal message list (fast path for greetings)
+    
     history = session.get("messages", [])
     if len(history) > HISTORY_MAX:
         history = history[-HISTORY_MAX:]
@@ -53,7 +53,7 @@ def chat():
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
 
-    # Save short history
+    # short history
     history.append({"role": "user", "text": user_text})
     history.append({"role": "bot",  "text": reply})
     session["messages"] = history[-HISTORY_MAX:]
@@ -69,8 +69,9 @@ def reset():
 def health():
     return jsonify({"status": "ok", "backend": "cohere", "session_len": len(session.get("messages", []))})
 
-# Local dev (Render runs gunicorn app:app)
+# Render runs gunicorn app:app
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "5050"))
     print(f"Open your browser to: http://127.0.0.1:{port}")
     app.run(host="127.0.0.1", port=port, debug=True, use_reloader=False)
+
