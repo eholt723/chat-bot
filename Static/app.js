@@ -72,7 +72,7 @@ setTheme(next);
 clearBtn.addEventListener('click', ()=>{ chatEl.innerHTML=''; addMessage('New chat started. How can I help?', false); });
 
 
-// copy buttons (event delegation)
+// copy buttons 
 chatEl.addEventListener('click', (e)=>{
 const btn = e.target.closest('.copy');
 if(!btn) return;
@@ -93,7 +93,7 @@ resetBtn?.addEventListener('click', async () => {
   try {
     await fetch('/reset', { method: 'POST' });
   } catch(e) {
-    // ignore network errors; we still clear the UI
+    // ignore network errors
   }
   chatEl.innerHTML = '';
   addMessage('Session reset. How can I help?');
@@ -101,4 +101,5 @@ resetBtn?.addEventListener('click', async () => {
 });
 
 const typingNode = addTyping();
+
 addMessage('Hey Eric! I\'m ready. Ask me anything.');
