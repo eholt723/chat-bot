@@ -3,6 +3,8 @@
 <head>
   <meta charset="utf-8" />
   <title>Chat Bot-Eric Holt</title>
+  <link rel="icon" type="image/png" href="{{ url_for('static', filename='glow_round_favicon.png') }}?v=1">
+  <link rel="shortcut icon" href="{{ url_for('static', filename='glow_round_favicon.png') }}?v=1">
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <style>
     :root { --bg:#0f1115; --card:#151822; --muted:#9aa3b2; --accent:#4b82ff; --border:#212638; --text:#e8eefc; }
@@ -23,20 +25,37 @@
     input{flex:1;padding:12px;border-radius:10px;border:1px solid var(--border);background:#0f1320;color:var(--text)}
     button{padding:12px 16px;border-radius:10px;border:1px solid var(--border);background:var(--accent);color:#fff;cursor:pointer}
     button:disabled{opacity:.6;cursor:not-allowed}
+
+    .credit{
+      position:fixed;
+      bottom:12px;
+      right:16px;
+      font-size:12px;
+      color:var(--muted);
+      opacity:.85;
+      pointer-events:none;
+      user-select:none;
+    }
+    @media (max-width: 767px){
+      .credit{bottom:10px;right:12px;font-size:11px}
+    }
   </style>
 </head>
 <body>
   <div class="wrap">
     <h1>Live Chatbot Demo</h1>
     <div class="stack">Built with Python · Flask · VS Code · Cohere API · Render</div>
-    
+
     <div id="chat" class="chat"></div>
-    
+
     <form id="f">
       <input id="t" placeholder="Say hi…" autocomplete="off"/>
       <button>Send</button>
     </form>
   </div>
+
+  <div class="credit">Created by Eric Holt</div>
+
 <script>
 const chat = document.getElementById('chat');
 const form = document.getElementById('f');
@@ -89,4 +108,3 @@ form.addEventListener('submit', async (e) => {
 </script>
 </body>
 </html>
-
