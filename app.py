@@ -1,24 +1,23 @@
-
-from flask import Flask, render_template, request, jsonify, session
+from flask import Flask, render_template, request, jsonify, session, send_from_directory
 import os
 from dotenv import load_dotenv
 import cohere
-from flask import send_from_directory
-
-@app.get("/favicon.ico")
-def favicon():
-    return send_from_directory(app.static_folder, "glow_round_favicon.png")
 
 load_dotenv()
+
 COHERE_API_KEY = os.getenv("COHERE_API_KEY")
 co = cohere.ClientV2(api_key=COHERE_API_KEY)
-
 
 app = Flask(__name__, template_folder="Templates")
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret-key")
 
+# Serve favicon.ico explicitly (some browsers still request this even with PNG favicon links)
+@app.get("/favicon.ico")
+def favicon():
+    return send_from_directory(app.static_folder, "glow_round_favicon.png")
+
 SYSTEM_PROMPT = "Be concise, friendly, and helpful. If unsure, say so briefly."
-HISTORY_MAX = 6  
+HISTORY_MAX = 6
 FAST_TRIGGER = {"hi", "hello", "hey", "yo", "sup", "howdy"}
 
 @app.get("/")
@@ -35,7 +34,6 @@ def chat():
     if not COHERE_API_KEY:
         return jsonify({"ok": False, "error": "Missing COHERE_API_KEY"}), 500
 
-    
     history = session.get("messages", [])
     if len(history) > HISTORY_MAX:
         history = history[-HISTORY_MAX:]
@@ -58,9 +56,8 @@ def chat():
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
 
-    # short history
     history.append({"role": "user", "text": user_text})
-    history.append({"role": "bot",  "text": reply})
+    history.append({"role": "bot", "text": reply})
     session["messages"] = history[-HISTORY_MAX:]
 
     return jsonify({"ok": True, "reply": reply})
@@ -79,4 +76,3 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", "5050"))
     print(f"Open your browser to: http://127.0.0.1:{port}")
     app.run(host="127.0.0.1", port=port, debug=True, use_reloader=False)
-
