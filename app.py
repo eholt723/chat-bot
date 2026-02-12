@@ -3,6 +3,11 @@ from flask import Flask, render_template, request, jsonify, session
 import os
 from dotenv import load_dotenv
 import cohere
+from flask import send_from_directory
+
+@app.get("/favicon.ico")
+def favicon():
+    return send_from_directory(app.static_folder, "glow_round_favicon.png")
 
 load_dotenv()
 COHERE_API_KEY = os.getenv("COHERE_API_KEY")
