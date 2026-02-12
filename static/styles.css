@@ -1,0 +1,23 @@
+/* ====== header with stack badges ====== */
+.stack-header{
+  display:flex; align-items:center; justify-content:space-between; gap:16px;
+  padding:14px 16px; border-radius:20px;
+  backdrop-filter: blur(10px) saturate(120%);
+  background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.02));
+  border:1px solid var(--panel-border); box-shadow:var(--shadow);
+}
+.stack-left{ display:flex; flex-direction:column; gap:6px; min-width:0 }
+.title{ margin:0; font-weight:800; letter-spacing:.2px; font-size:20px }
+.badges{ display:flex; flex-wrap:wrap; gap:8px }
+.badge{
+  font-size:12px; color:var(--text);
+  padding:6px 10px; border-radius:999px;
+  background:linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.04));
+  border:1px solid var(--panel-border);
+  box-shadow: 0 1px 0 rgba(255,255,255,.06) inset, var(--shadow);
+  white-space:nowrap;
+}
+.stack-right .chip{
+  border:1px solid var(--panel-border); background:var(--panel);
+  color:var(--text); padding:8px 12px; border-radius:999px; cursor:pointer;
+}
